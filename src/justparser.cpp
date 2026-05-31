@@ -38,51 +38,8 @@ typedef std::vector<int> jtree_t;
 
 enum { Node_ValueFlag = 1, Node_ArrayFlag = 2, Node_TreeFlag = 3 };
 
-/* Internal Pointer (IPT) */
-enum { Invalid_IPT = -1 };
-
-// NOTE: storage description
-/*
-            index  |types
-            -------|----------------
-            0       bools
-            1       numbers
-            2       reals
-            3       strings
-            4       trees
-
-            ------------------------
-            ISSUE:
-            - Organize structure malloc (realloc)
-            - Tree for node
-                - How to get answer ? First use unsigned int as pointer in linear.
-
-            VAULT:
-            - bools(0), numbers(1), reals(2), strings(3), trees(4)
-
-    */
-struct just_storage {
-
-    // Has storage state
-    std::uint8_t optimized;
-
-    // up members  : meta-info
-    // down members: size-info
-    jnumber numBools;
-    jnumber numNumbers;
-    jnumber numReals;
-    jnumber numStrings;
-    jnumber numTrees;
-
-    jnumber arrayBools;
-    jnumber arrayNumbers;
-    jnumber arrayReals;
-    jnumber arrayStrings;
-    void* vault;
-};
-
 static const struct {
-    // member for use floating point (delimeter)ADSDS
+    // member for use floating point (delimeter)
     char just_dot = '.';
     // member for use seperate array data
     char just_obstacle = ',';
@@ -116,60 +73,10 @@ static const struct {
     char just_positive_sym = '+';
 } just_syntax;
 
-struct just_stats {
-    std::uint16_t jstrings;
-    std::uint32_t jstrings_total_bytes;
-    std::uint16_t jnumbers;
-    std::uint16_t jreals;
-    std::uint16_t jbools;
-    std::uint16_t jarrstrings;
-    std::uint32_t jarrstrings_total_bytes;
-    std::uint16_t jarrnumbers;
-    std::uint32_t jarrnumbers_total_bytes;
-    std::uint16_t jarrreals;
-    std::uint32_t jarrreals_total_bytes;
-    std::uint16_t jarrbools;
-    std::uint32_t jarrbools_total_bytes;
-    std::uint16_t jdepths;
-
-    const jnumber calcBytes() const
-    {
-        jnumber sz;
-
-        // calc jstring
-        sz = jstrings_total_bytes;
-
-        // calc jnumber
-        sz += jnumbers * sizeof(jnumber);
-
-        // calc jreals
-        sz += jreals * sizeof(jreal);
-
-        // calc jbools
-        sz += jbools * sizeof(jbool);
-
-        // calc arrays
-        sz += jarrstrings_total_bytes + jarrnumbers_total_bytes + jarrbools_total_bytes + jarrreals_total_bytes;
-
-        return sz;
-    }
-};
 
 method inline int system_get_page_size();
 
 method inline int just_type_size(const JustType type);
-
-/*storage*/
-method inline just_storage* just_storage_new_init();
-method jvariant just_storage_get_vault(const just_storage* pstorage, const JustType type);
-method std::uint32_t just_storage_get_vault_info(const just_storage* pstorage, JustType type);
-method jvariant just_storage_alloc_field(just_storage** pstore, JustType type, int size);
-method int just_storage_get_ipt(const just_storage* pstorage, const jvariant pointer);
-method jvariant just_storage_get_pointer(const just_storage* pstore, const int ipt);
-method jtree_t* just_storage_alloc_tree(just_storage** pstore, jtree_t* owner);
-method jvariant just_storage_alloc_array(just_storage** pstore, JustType arrayType);
-method bool just_storage_optimize(just_storage** pstorage);
-method JustType just_storage_get_type(const just_storage* pstorage, const void* pointer);
 
 /*parser*/
 method inline int just_string_to_hash_fast(const char* char_side, int contentLength);
@@ -219,210 +126,6 @@ method inline int system_get_page_size()
     _PAGE_SIZE = 4096;
 #endif
     return _PAGE_SIZE;
-}
-
-// method for create and init new storage.
-method just_storage* just_storage_new_init()
-{
-    just_storage* ptr;
-    int pgSize = system_get_page_size();
-    pgSize = sizeof(just_storage) > pgSize ? sizeof(just_storage) : pgSize;
-    if (!(ptr = static_cast<just_storage*>(std::malloc(pgSize))))
-        throw std::bad_alloc();
-
-    // init as 0
-    std::memset(ptr, 0, pgSize);
-    // copy self address
-    std::size_t addr = std::size_t(&ptr->vault);
-    std::memcpy(&ptr->vault, &addr, sizeof(std::size_t));
-    return ptr;
-}
-method jvariant just_storage_get_vault(const just_storage* pstorage, const JustType type)
-{
-    if (type < JustType::JustBoolean)
-        // vault is not supported
-        return nullptr;
-
-    jvariant _vp = reinterpret_cast<jvariant>((reinterpret_cast<std::size_t>(pstorage->vault) + (int(type) - 1) * sizeof(void*)));
-    return _vp;
-}
-
-method void just_storage_deinit(just_storage* pstorage){
-
-    free(pstorage);
-}
-
-// Get storage size from type order
-method std::uint32_t just_storage_get_vault_info(const just_storage* pstorage, JustType type)
-{
-    std::uint32_t calcSize;
-
-    if (!pstorage)
-        throw std::bad_alloc();
-
-    if (type > JustType::Null) {
-        // move pointer to ...
-        const jnumber* alpha = reinterpret_cast<const jnumber*>(reinterpret_cast<std::size_t>(pstorage) + sizeof(pstorage->optimized)) + static_cast<int>(type);
-
-        // low - count ~ high - sizes (all bytes)
-        calcSize = (*alpha) >> 32;
-    } else {
-        // set to zero
-        calcSize = 0;
-    }
-
-    return calcSize;
-}
-
-// method for get type from pointer (storage required)
-method JustType just_storage_get_type(const just_storage* pstorage, const void* pointer)
-{
-    const jnumber* alpha = reinterpret_cast<jnumber*>(reinterpret_cast<std::size_t>(pstorage) + sizeof(pstorage->optimized));
-    const void* delta = pstorage->vault;
-    int type;
-    if (pointer) {
-        type = static_cast<int>(JustType::JustBoolean);
-        if (pstorage->optimized) {
-            for (; pointer < delta; ++alpha) {
-
-                // set next pointer (from vault size)
-                delta += static_cast<std::uint32_t>(*alpha >> 32); // high (bytes)
-
-                ++type;
-            }
-        } else {
-
-            for (; pointer < delta; ++alpha) {
-
-                std::uint32_t size = just_storage_get_vault_info(pstorage, static_cast<JustType>(type));
-
-                // set next pointer (from vault size)
-                delta += static_cast<std::uint32_t>(*alpha >> 32); // high (bytes)
-
-                ++type;
-            }
-        }
-    } else
-        // ops: Type is null, var is empty
-        type = static_cast<int>(JustType::Null);
-
-    return static_cast<JustType>(type);
-}
-
-method jvariant just_storage_alloc_field(just_storage** pstore, JustType type, int size = 0)
-{
-    if (pstore == nullptr || *pstore == nullptr)
-        throw std::bad_alloc();
-
-    if ((*pstore)->optimized) {
-        throw std::runtime_error("storage has optimized state");
-    }
-
-    // Storage Meta-info
-    // Low bytes: count
-    // High bytes: size
-    // Check
-    jvariant _vault;
-
-    _vault = just_storage_get_vault(*pstore, type);
-
-    // value is null
-    if (!_vault)
-        return _vault;
-
-    if (type == JustType::JustTree) { // can be realloc ?
-        // for tree
-        _vault = new jtree_t;
-        ++(*pstore)->numTrees;
-    } else { // for primary types
-
-        if (size <= 0) {
-            if (type == JustType::JustString) {
-                // Error. String size is empty
-                return nullptr;
-            }
-            size = just_type_size(type);
-        }
-
-        // vault after changed
-        jvariant _chVault = std::realloc(_vault, size);
-        if (_chVault) {
-            // set as zero
-            std::memset(_chVault, 0, size);
-
-            switch (type) {
-            case JustType::JustBoolean:
-                ++(*pstore)->numBools;
-            case JustType::JustNumber:
-                ++(*pstore)->numNumbers;
-            case JustType::JustReal:
-                ++(*pstore)->numReals;
-            case JustType::JustString:
-                ++(*pstore)->numStrings;
-            default:
-                throw std::bad_cast();
-            }
-        }
-        _vault = _chVault;
-    }
-
-    return _vault;
-}
-
-// Method for get Pointer to Internal Pointer (IPT). Lowest at pointer
-method int just_storage_get_ipt(const just_storage* pstore, const jvariant pointer)
-{
-    int ipt = 0; // Internal Pointer
-    if (pstore->optimized) {
-        // TODO: OPTIMIZED STATE
-        throw std::exception();
-    } else {
-        // pstore->vault
-        // const jvariant index = pstorage->vault;
-        JustType type = just_storage_get_type(pstore, pointer);
-    }
-    return ipt;
-}
-// Method from Internal Pointer (IPT) to Pointer. Lowest at pointer
-method jvariant just_storage_get_pointer(const just_storage* pstore, const int ipt) { return nullptr; }
-// Create Tree
-method jtree_t* just_storage_alloc_tree(just_storage** pstore, jtree_t* owner = nullptr)
-{
-    int ipt;
-    jtree_t* pjtree;
-    if (pstore == nullptr || *pstore == nullptr)
-        throw std::bad_alloc();
-
-    if ((*pstore)->optimized) {
-        throw std::runtime_error("storage in optimized state");
-    }
-
-    pjtree = static_cast<jtree_t*>(just_storage_alloc_field(pstore, JustType::JustTree));
-
-    if (owner != nullptr) {
-        ipt = just_storage_get_ipt(*pstore, pjtree);
-        owner->emplace_back(ipt);
-    }
-
-    return pjtree;
-}
-
-// Create Array Node
-method jvariant just_storage_alloc_array(just_storage** pstore, JustType arrayType)
-{
-    jvariant variant;
-
-    return variant;
-}
-
-// Optimize storage (ordering and compress)
-method bool just_storage_optimize(just_storage** pstore)
-{
-    if ((*pstore)->optimized)
-        return true;
-
-    // TODO: optimize here
-    return false;
 }
 
 // method for fast get hash from string
@@ -486,7 +189,7 @@ method inline jbool just_is_jbool(const char* char_side, int* getLength)
 }
 
 // method for get format from raw content, also to write in storage pointer
-method int just_get_format(const char* char_side, just_storage** storage, JustType& containType, jvariant* outValue = nullptr)
+method int just_get_format(const char* char_side, JustType& containType, jvariant* outValue = nullptr)
 {
     /*
          * Priority:
@@ -683,10 +386,10 @@ method jbool just_is_array(const char* char_side, int& endpoint, int contentLeng
 just_object_node::just_object_node(just_object_parser* owner, void* handle)
 {
     this->_jowner = owner;
-    this->_jhead = handle;
+    this->jname = handle;
 }
 
-method JustType just_object_node::type() const { just_storage_get_type(static_cast<just_storage*>(this->_jowner->_storage), _jhead); }
+method JustType just_object_node::type() const { just_storage_get_type(static_cast<just_storage*>(this->_jowner->_storage), jname); }
 
 method just_object_node* just_object_node::tree(const jstring& child) { return nullptr; }
 
@@ -719,7 +422,7 @@ just_object_node::operator jreal() const { return get_real(); }
 
 just_object_node::operator jstring() const { return get_str(); }
 
-method const jstring just_object_node::name() const { return jstring(static_cast<char*>(_jhead)); }
+method const jstring just_object_node::name() const { return jstring(static_cast<char*>(jname)); }
 
 method void just_avail_only(just_stats& jstat, const char* source, int length)
 {
@@ -1345,10 +1048,6 @@ method std::ostream& operator<<(std::ostream& out, const just_object_parser& par
     return out;
 }
 
-const jnumber just_object_node::get_int() const { return *static_cast<jnumber*>(_jhead); }
-const jbool just_object_node::get_bool() const { return *static_cast<jbool*>(_jhead); }
-const jstring just_object_node::get_str() const { return jstring(static_cast<char*>(_jhead)); }
-const jreal just_object_node::get_real() const { return *static_cast<jreal*>(_jhead); }
 } // namespace just
 
 #undef method

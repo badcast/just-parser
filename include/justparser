@@ -70,15 +70,23 @@ namespace just
         friend class just_object_parser;
 
     protected:
+
+        union {
+            void* jvariant;
+            /// string type
+            std::string jstring;
+            /// integer type
+            std::int64_t jnumber;
+            /// real type
+            double jreal;
+            /// logical type
+            bool jbool;
+        } judata;
+
         just_object_parser* _jowner;
-        jvariant _jhead;
+        jstring jname;
 
-        just_object_node(just_object_parser* head, void* handle);
-
-        const jnumber get_int() const;
-        const jbool get_bool() const;
-        const jstring get_str() const;
-        const jreal get_real() const;
+        just_object_node(just_object_parser* head, void* handle);        
 
     public:
         // Property 'name' it is Node
@@ -99,25 +107,25 @@ namespace just
         template <typename T, typename std::enable_if<std::is_integral<T>::value, std::nullptr_t>::type = nullptr>
         const jnumber value() const
         {
-            return get_int();
+            return judata.jnumber;
         }
 
         template <typename T, typename std::enable_if<std::is_same<T, bool>::value, std::nullptr_t>::type = nullptr>
         const jbool value() const
         {
-            return get_bool();
+            return judata.jbool;
         }
 
         template <typename T, typename std::enable_if<std::is_floating_point<T>::value, std::nullptr_t>::type = nullptr>
         const jreal value() const
         {
-            return get_real();
+            return judata.jreal;
         }
 
         template <typename T, typename std::enable_if<std::is_same<T, jstring>::value>::type, std::nullptr_t = nullptr>
         const jstring value() const
         {
-            return get_str();
+            return judata.jstring;
         }
 
         jstring to_string() const;
