@@ -1,11 +1,12 @@
-file(GLOB TARGET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
-     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+add_executable(just-test test.cpp)
+target_link_libraries(just-test PRIVATE justio)
+add_test(NAME just-parser-tests COMMAND just-test)
 
-set(JustFILEINPUT "syntax.just")
-set(DESTINATION_JustFILE "${CMAKE_CURRENT_BINARY_DIR}/${JustFILEINPUT}")
-file(CREATE_LINK "${CMAKE_CURRENT_SOURCE_DIR}/${JustFILEINPUT}"
-     ${DESTINATION_JustFILE} SYMBOLIC)
-
-add_executable(just-test ${TARGET_SOURCES}
-                         "${CMAKE_CURRENT_SOURCE_DIR}/${JustFILEINPUT}")
-target_link_libraries(just-test justio)
+add_executable(just-example main.cpp)
+target_link_libraries(just-example PRIVATE justio)
+add_custom_command(TARGET just-example POST_BUILD
+     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_CURRENT_SOURCE_DIR}/syntax.just"
+          "$<TARGET_FILE_DIR:just-example>/syntax.just"
+     VERBATIM
+)

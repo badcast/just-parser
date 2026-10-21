@@ -10,6 +10,8 @@
 
 #include <cstdint>
 #include <map>
+#include <vector>
+#include <string>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -19,6 +21,7 @@ namespace just
 {
     class just_object_parser;
     class just_object_node;
+    struct just_storage;
 
     /// undefined type
     typedef void* jvariant;
@@ -32,6 +35,21 @@ namespace just
     typedef bool jbool;
 
     using jstruct = std::map<int, just_object_node>;
+
+    struct just_stats {
+        int jstrings = 0;
+        int jbools = 0;
+        int jreals = 0;
+        int jnumbers = 0;
+        int jarrstrings = 0;
+        int jarrbools = 0;
+        int jarrreals = 0;
+        int jarrnumbers = 0;
+        int jarrstrings_total_bytes = 0;
+        int jarrbools_total_bytes = 0;
+        int jarrreals_total_bytes = 0;
+        int jarrnumbers_total_bytes = 0;
+    };
 
     enum class JustSerializeFormat {
         // Just (Just Node Object) a beautify string view
@@ -68,27 +86,35 @@ namespace just
     class just_object_node
     {
         friend class just_object_parser;
+        friend int bug_just_avail(just_object_parser*, jstruct*, just_storage**, just_stats&, const char*, int, int);
 
     protected:
 
         union {
-            void* jvariant;
+            void* v_variant;
             /// string type
-            std::string jstring;
+            std::string* v_string;
             /// integer type
-            std::int64_t jnumber;
+            std::int64_t v_number;
             /// real type
-            double jreal;
+            double v_real;
             /// logical type
-            bool jbool;
+            bool v_bool;
         } judata;
 
-        just_object_parser* _jowner;
+        just_object_parser* _jowner = nullptr;
         jstring jname;
+        int flags = 0;
+        void* handle = nullptr;
 
-        just_object_node(just_object_parser* head, void* handle);        
+        just_object_node(just_object_parser* head, void* handle);
 
     public:
+        just_object_node();
+        ~just_object_node() = default;
+
+        void set_native_memory(void* mem) { handle = mem; judata.v_variant = mem; }
+
         // Property 'name' it is Node
         const jstring name() const;
 
@@ -104,28 +130,44 @@ namespace just
         // Property 'has_value' is the value from this tree
         jbool has_value() const;
 
-        template <typename T, typename std::enable_if<std::is_integral<T>::value, std::nullptr_t>::type = nullptr>
+        // Property 'is_array' checks if node is an array
+        jbool is_array() const;
+
+        jnumber get_int() const;
+        jbool get_bool() const;
+        jreal get_real() const;
+        jstring get_str() const;
+
+        template <typename T>
+        const std::vector<T>& get_array() const
+        {
+            if (!is_array() || !handle)
+                throw std::runtime_error("Node is not an array");
+            return *static_cast<const std::vector<T>*>(handle);
+        }
+
+        template <typename T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, bool>::value, std::nullptr_t>::type = nullptr>
         const jnumber value() const
         {
-            return judata.jnumber;
+            return get_int();
         }
 
         template <typename T, typename std::enable_if<std::is_same<T, bool>::value, std::nullptr_t>::type = nullptr>
         const jbool value() const
         {
-            return judata.jbool;
+            return get_bool();
         }
 
         template <typename T, typename std::enable_if<std::is_floating_point<T>::value, std::nullptr_t>::type = nullptr>
         const jreal value() const
         {
-            return judata.jreal;
+            return get_real();
         }
 
-        template <typename T, typename std::enable_if<std::is_same<T, jstring>::value>::type, std::nullptr_t = nullptr>
+        template <typename T, typename std::enable_if<std::is_same<T, jstring>::value, std::nullptr_t>::type = nullptr>
         const jstring value() const
         {
-            return judata.jstring;
+            return get_str();
         }
 
         jstring to_string() const;
@@ -155,7 +197,7 @@ namespace just
         void deserialize_from(const jstring& filename);
         void deserialize(const jstring& source);
         void deserialize(const char* source, int len);
-        void deserialize(const jstring& content, int depth = -1);
+        void deserialize(const jstring& content, int depth);
 
         // Serialize as string format (text structured data)
         jstring serialize(JustSerializeFormat format = JustSerializeFormat::JustCompact) const;
